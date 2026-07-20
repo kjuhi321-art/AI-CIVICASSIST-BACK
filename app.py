@@ -33,7 +33,7 @@ class CitizenData(BaseModel):
     language: str
 
 # ✔️ बिल्कुल सही और 100% असली लिंक (इसे कॉपी करके अपनी फ़ाइल में डालो):
-N8N_WEBHOOK_URL = "https://my-civic-n8n.onrender.com/webhook/8f42e641-d1a2-4751-925e-002e918ed2b9"
+N8N_WEBHOOK_URL = "https://juhi887.app.n8n.cloud/webhook/8f42e641-d1a2-4751-925e-002e918ed2b9"
 
 @app.get("/")
 def home():
