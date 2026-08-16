@@ -66,11 +66,28 @@ async def check_eligibility(profile: CitizenProfile):
 
         # 🤖 3. Groq AI को सीधे कॉल करें (सुपर-फ़ास्ट Llama-3.1-8b-instant मॉडल के साथ)
         system_prompt = (
-            "You are an expert Government Scheme Eligibility Engine. Analyze the citizen profile against the provided schemes list. "
-            "Return ONLY a clean JSON object with a key 'schemes' containing an array of matched schemes. "
-            "Each scheme object MUST have fields: 'title', 'description', 'benefits', 'required_documents' (array), and 'step_by_step_guidance' (array). "
-            "Do not include any markdown fences like ```json, just return raw JSON."
+            "You are an expert Government Scheme Eligibility Engine. Analyze the citizen profile against the provided schemes list.\n\n"
+            "CRITICAL INSTRUCTION: You MUST return ONLY a valid, clean JSON object. Do not include any markdown code fences like ```json or ```. Do not include any conversational text before or after the JSON.\n\n"
+            "The JSON structure MUST follow this exact format strict keys:\n"
+            "{\n"
+            "  \"schemes\": [\n"
+            "    {\n"
+            "      \"title\": \"Name of the scheme\",\n"
+            "      \"description\": \"Brief description\",\n"
+            "      \"benefits\": \"Key benefits provided\",\n"
+            "      \"required_documents\": [\"Document 1\", \"Document 2\", \"Document 3\"],\n"
+            "      \"step_by_step_guidance\": [\n"
+            "        \"Step 1: Check your eligibility on the official portal.\",\n"
+            "        \"Step 2: Gather all required documents like Income and Caste certificates.\",\n"
+            "        \"Step 3: Visit your nearest Common Service Center (CSC) or official online desk.\",\n"
+            "        \"Step 4: Fill out the application form and submit the documents for verification.\"\n"
+            "      ]\n"
+            "    }\n"
+            "  ]\n"
+            "}\n\n"
+            "Ensure 'required_documents' and 'step_by_step_guidance' are strictly arrays of strings with multiple separate steps, never a single block of text."
         )
+
         
         response = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
@@ -99,7 +116,7 @@ async def check_eligibility(profile: CitizenProfile):
         print(f"Error occurred: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
     # 🚀 रेंडर के पोर्ट को ज़बरदस्ती कोड से बाइंड करने के लिए यह ब्लॉक सबसे नीचे जोड़ें:
-    
+
 if __name__ == "__main__":
     import uvicorn
     # यह रेंडर के एनवायरनमेंट से $PORT खींचेगा, अगर नहीं मिला तो डिफ़ॉल्ट 10000 यूज़ करेगा
