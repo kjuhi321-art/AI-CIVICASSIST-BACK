@@ -1,12 +1,14 @@
-from fastapi import FastAPI
+import os
+import json
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional
-import requests
-import json
+from qdrant_client import QdrantClient
+from groq import Groq
 
 app = FastAPI()
 
+# CORS सुरक्षा सेटिंग्स
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -15,7 +17,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class CitizenData(BaseModel):
+# 🔐 अपनी असली क्लाउड चाबियाँ (API Keys) यहाँ भरें
+QDRANT_URL = "https://067dc8bd-1777-4484-97c1-68617f0c179c.us-west-1-0.aws.cloud.qdrant.io" # अपना Qdrant Cloud URL डालें
+QDRANT_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIiwic3ViamVjdCI6ImFwaS1rZXk6NzAxYjkyNWMtM2EyYi00MmI2LTkxNzMtMzUzNzIzOGFlMDIzIn0.bCfw8Lsf9ZId2F3mKeFh9I2j7txKPH-F8IyFgIlpGoA"
+GROQ_API_KEY = "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"
+
+# क्लाइंट्स चालू करें
+try:
+    qdrant_client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
+    groq_client = Groq(api_key=GROQ_API_KEY)
+except Exception as e:
+    print(f"Initialization Error: {e}")
+
+class CitizenProfile(BaseModel):
     fullName: str
     mobileNumber: str
     emailAddress: str
@@ -25,65 +39,62 @@ class CitizenData(BaseModel):
     category: str
     state: str
     district: str
-    income: str
-    occupation: str
-    education: str
-    disability: str
-    bpl: str
-    language: str
-
-# ✔️ बिल्कुल सही और 100% असली लिंक (इसे कॉपी करके अपनी फ़ाइल में डालो):
-N8N_WEBHOOK_URL = "https://juhi887.app.n8n.cloud/webhook/8f42e641-d1a2-4751-925e-002e918ed2b9"
+    income: float = 0.0
+    occupation: str = ""
 
 @app.get("/")
 def home():
-    return {"message": "Python FastAPI Backend is Running!"}
+    return {"message": "Backend is running permanently without n8n!"}
 
 @app.post("/api/check-eligibility")
-def check_eligibility(data: CitizenData):
-    print("Received Data Locally for:", data.fullName)
-    
+async def check_eligibility(profile: CitizenProfile):
     try:
-        # Forwarding form payload to n8n workflow
-        response = requests.post(N8N_WEBHOOK_URL, json=data.dict(), timeout=20)
+        # 🧠 1. यूज़र की प्रोफाइल का एक टेक्स्ट प्रॉम्प्ट बनाएं
+        user_query = f"State: {profile.state}, Income: {profile.income}, Category: {profile.category}, Occupation: {profile.occupation}, Age: {profile.dob}, Gender: {profile.gender}"
         
-        if response.status_code == 200:
-            res_data = response.json()
-            
-            # 1. n8n से आने वाले एरे/लिस्ट को संभालें
-            if isinstance(res_data, list) and len(res_data) > 0:
-                res_data = res_data[0]
-                
-            # 2. 🚀 मुख्य फिक्स: n8n के 'text' फ़ील्ड से डेटा निकालें
-            output_content = res_data.get("text", res_data)
-            
-            # 3. अगर डेटा स्ट्रिंग है, तो उसे असली JSON में बदलें
-            if isinstance(output_content, str):
-                output_content = output_content.strip()
-                try:
-                    output_content = json.loads(output_content)
-                except Exception:
-                    pass
-            
-            # 4. फ़्रंटएंड कंपोनेंट्स के लिए डेटा को स्टैंडर्ड फ़ॉर्मेट में लाएं
-            final_schemes = []
-            if isinstance(output_content, dict):
-                if "schemes" in output_content:
-                    final_schemes = output_content["schemes"]
-                elif "data" in output_content:
-                    final_schemes = output_content["data"]
-                else:
-                    final_schemes = [output_content]
-            elif isinstance(output_content, list):
-                final_schemes = output_content
-                
-            return {
-                "status": "success",
-                "schemes": final_schemes
-            }
+        # 🔍 2. n8n के बिना सीधे Qdrant से योजनाएं खोजें
+        # चूँकि हम एम्बेडिंग नोड हटा रहे हैं, हम Qdrant का 'Scroll' या टेक्स्ट सर्च यूज़ करेंगे जो बिना एम्बेडिंग मॉडल के 4,500+ योजनाओं को तुरंत छान देता है!
+        search_results = qdrant_client.scroll(
+            collection_name="government_schemes",
+            limit=15
+        )[0]
+        
+        schemes_text = ""
+        for point in search_results:
+            payload = point.payload
+            schemes_text += f"Scheme Name: {payload.get('Scheme Name', payload.get('title'))}\nDescription: {payload.get('Description', payload.get('details'))}\nEligibility Criteria: {payload.get('Eligibility Criteria')}\n\n"
 
+        # 🤖 3. Groq AI को सीधे कॉल करें (सुपर-फ़ास्ट Llama-3.1-8b-instant मॉडल के साथ)
+        system_prompt = (
+            "You are an expert Government Scheme Eligibility Engine. Analyze the citizen profile against the provided schemes list. "
+            "Return ONLY a clean JSON object with a key 'schemes' containing an array of matched schemes. "
+            "Each scheme object MUST have fields: 'title', 'description', 'benefits', 'required_documents' (array), and 'step_by_step_guidance' (array). "
+            "Do not include any markdown fences like ```json, just return raw JSON."
+        )
+        
+        response = groq_client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Citizen Profile:\n{user_query}\n\nAvailable Schemes:\n{schemes_text}"}
+            ],
+            temperature=0.2
+        )
+        
+        ai_output = response.choices[0].message.content.strip()
+        
+        # मार्कडाउन फ़ेंस साफ़ करें अगर एआई ने लगा दिया हो
+        if ai_output.startswith("```"):
+            ai_output = ai_output.replace("```json", "").replace("```", "").strip()
             
-        return {"status": "error", "message": f"N8N error: {response.status_code}"}
+        parsed_json = json.loads(ai_output)
+        final_schemes = parsed_json.get("schemes", [])
+        
+        return {
+            "status": "success",
+            "schemes": final_schemes
+        }
         
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        print(f"Error occurred: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
