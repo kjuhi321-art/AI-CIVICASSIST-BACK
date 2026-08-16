@@ -101,21 +101,43 @@ async def check_eligibility(profile: CitizenProfile):
         ai_output = response.choices[0].message.content.strip()
         
         # मार्कडाउन फ़ेंस साफ़ करें अगर एआई ने लगा दिया हो
-        if ai_output.startswith("```"):
-            ai_output = ai_output.replace("```json", "").replace("```", "").strip()
-            
-        parsed_json = json.loads(ai_output)
-        final_schemes = parsed_json.get("schemes", [])
+        ai_output = response.choices.message.content.strip()
+        print("Raw AI Output:", ai_output)  # रेंडर के लॉग्स में चेक करने के लिए
         
+        # 🚀 फ़िक्स 1: अगर एआई ने गलती से ```json या ``` मार्कडाउन लगा दिया हो तो उसे साफ करो
+        if "```" in ai_output:
+            ai_output = ai_output.split("```")[1]
+            if ai_output.startswith("json"):
+                ai_output = ai_output[4:].strip()
+        ai_output = ai_output.strip()
+
+        final_schemes = []
+        try:
+            # 🚀 फ़िक्स 2: असली JSON लोड करने की कोशिश करो
+            parsed_json = json.loads(ai_output)
+            final_schemes = parsed_json.get("schemes", [])
+        except Exception as json_err:
+            print(f"Standard JSON parse failed, trying regex fallback: {json_err}")
+            # 🚀 फ़िक्स 3: अगर पूरा JSON क्रैश हो जाए, तो उसके अंदर से ब्रैकेट ढूंढकर डेटा निकालो
+            import re
+            match = re.search(r'\{.*\}', ai_output, re.DOTALL)
+            if match:
+                try:
+                    parsed_json = json.loads(match.group(0))
+                    final_schemes = parsed_json.get("schemes", [])
+                except Exception:
+                    pass
+
+        # 🚀 फ़िक्स 4: अगर एआई ने लिस्ट के बजाय सिर्फ एक ऑब्जेक्ट भेजा हो, तो उसे लिस्ट में बदलो
+        if isinstance(final_schemes, dict):
+            final_schemes = [final_schemes]
+            
+        print("Successfully extracted schemes count:", len(final_schemes))
         return {
             "status": "success",
             "schemes": final_schemes
         }
-        
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-    # 🚀 रेंडर के पोर्ट को ज़बरदस्ती कोड से बाइंड करने के लिए यह ब्लॉक सबसे नीचे जोड़ें:
+
 
 if __name__ == "__main__":
     import uvicorn
