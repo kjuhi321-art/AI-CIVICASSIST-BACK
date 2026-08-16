@@ -98,3 +98,11 @@ async def check_eligibility(profile: CitizenProfile):
     except Exception as e:
         print(f"Error occurred: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+    # 🚀 रेंडर के पोर्ट को ज़बरदस्ती कोड से बाइंड करने के लिए यह ब्लॉक सबसे नीचे जोड़ें:
+    
+if __name__ == "__main__":
+    import uvicorn
+    # यह रेंडर के एनवायरनमेंट से $PORT खींचेगा, अगर नहीं मिला तो डिफ़ॉल्ट 10000 यूज़ करेगा
+    port = int(os.getenv("PORT", 10000)) [INDEX]
+    uvicorn.run("app:app", host="0.0.0.0", port=port, reload=False) [INDEX]
+
