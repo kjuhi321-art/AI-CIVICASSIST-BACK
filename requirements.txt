@@ -1,4 +1,4 @@
 fastapi
 uvicorn
-requests
-pydantic
+qdrant-client
+groq
