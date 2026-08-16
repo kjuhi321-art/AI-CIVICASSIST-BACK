@@ -51,6 +51,7 @@ def home():
 async def check_eligibility(profile: CitizenProfile):
     try:
         # 🧠 1. यूज़र की प्रोफाइल का एक टेक्स्ट प्रॉम्प्ट बनाएं
+        groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
         user_query = f"State: {profile.state}, Income: {profile.income}, Category: {profile.category}, Occupation: {profile.occupation}, Age: {profile.dob}, Gender: {profile.gender}"
         
         # 🔍 2. Qdrant से योजनाएं खोजें
