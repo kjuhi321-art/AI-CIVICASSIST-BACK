@@ -18,9 +18,9 @@ app.add_middleware(
 )
 
 # 🔐 अपनी असली क्लाउड चाबियाँ (API Keys) यहाँ भरें
-QDRANT_URL = "https://067dc8bd-1777-4484-97c1-68617f0c179c.us-west-1-0.aws.cloud.qdrant.io" # अपना Qdrant Cloud URL डालें
-QDRANT_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIiwic3ViamVjdCI6ImFwaS1rZXk6NzAxYjkyNWMtM2EyYi00MmI2LTkxNzMtMzUzNzIzOGFlMDIzIn0.bCfw8Lsf9ZId2F3mKeFh9I2j7txKPH-F8IyFgIlpGoA"
-GROQ_API_KEY = "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"
+QDRANT_URL = os.getenv("QDRANT_URL")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 # क्लाइंट्स चालू करें
 try:
