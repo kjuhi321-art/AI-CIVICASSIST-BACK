@@ -56,18 +56,26 @@ async def check_eligibility(profile: CitizenProfile):
         user_query = f"State: {profile.state}, Income: {profile.income}, Category: {profile.category}, Occupation: {profile.occupation}, Age: {profile.dob}, Gender: {profile.gender}"
         
         # 🔍 3. Qdrant से योजनाएं खोजें
-        search_results = current_qdrant.scroll(
+                # 🔍 Qdrant से योजनाएं खोजें (बिना क्रैश होने वाला सुरक्षित तरीका)
+        search_results = qdrant_client.scroll(
             collection_name="government_schemes",
             limit=15
         )
         
-        # [0] लगाकर पहले हिस्से (Points) को सुरक्षित बाहर निकाला
-        records = search_results[0] if isinstance(search_results, tuple) else search_results
-        
+        # 🛡️ सेफ़ पार्सर: चाहे टुपल आए या लिस्ट, असली रिकॉर्ड्स को सुरक्षित बाहर निकालो
+        if isinstance(search_results, tuple):
+            records = search_results[0]
+        elif isinstance(search_results, list):
+            records = search_results
+        else:
+            records = getattr(search_results, 'points', search_results)
+
         schemes_text = ""
-        for point in records:
-            payload = point.payload
-            schemes_text += f"Scheme Name: {payload.get('Scheme Name', payload.get('title'))}\nDescription: {payload.get('Description', payload.get('details'))}\nEligibility Criteria: {payload.get('Eligibility Criteria')}\n\n"
+        for point in records: # search_results[0] की जगह अब सुरक्षित 'records' लूप चलेगा
+            payload = point.payload if hasattr(point, 'payload') else point
+            if isinstance(payload, dict):
+                schemes_text += f"Scheme Name: {payload.get('Scheme Name', payload.get('title'))}\nDescription: {payload.get('Description', payload.get('details'))}\nEligibility Criteria: {payload.get('Eligibility Criteria')}\n\n"
+
 
         # 🤖 4. Groq AI के लिए कड़ा सिस्टम प्रॉम्प्ट
         system_prompt = (
