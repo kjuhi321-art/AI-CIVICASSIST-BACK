@@ -23,12 +23,6 @@ QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# क्लाइंट्स चालू करें
-try:
-    qdrant_client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
-    groq_client = Groq(api_key=GROQ_API_KEY)
-except Exception as e:
-    print(f"Initialization Error: {e}")
 
 class CitizenProfile(BaseModel):
     fullName: str
@@ -50,22 +44,32 @@ def home():
 @app.post("/api/check-eligibility")
 async def check_eligibility(profile: CitizenProfile):
     try:
-        # 🧠 1. यूज़र की प्रोफाइल का एक टेक्स्ट प्रॉम्प्ट बनाएं
-        groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+        # 🔐 1. दोनों क्लाइंट्स को सीधे फ़ंक्शन के अंदर ताज़ा चाबियों के साथ चालू करें (가장 पक्का फ़िक्स)
+        qdrant_url = os.getenv("QDRANT_URL")
+        qdrant_key = os.getenv("QDRANT_API_KEY")
+        groq_key = os.getenv("GROQ_API_KEY")
+        
+        current_qdrant = QdrantClient(url=qdrant_url, api_key=qdrant_key)
+        current_groq = Groq(api_key=groq_key)
+        
+        # 🧠 2. यूज़र की प्रोफाइल का टेक्स्ट प्रॉम्प्ट बनाएं
         user_query = f"State: {profile.state}, Income: {profile.income}, Category: {profile.category}, Occupation: {profile.occupation}, Age: {profile.dob}, Gender: {profile.gender}"
         
-        # 🔍 2. Qdrant से योजनाएं खोजें
-        search_results = qdrant_client.scroll(
+        # 🔍 3. Qdrant से योजनाएं खोजें
+        search_results = current_qdrant.scroll(
             collection_name="government_schemes",
             limit=15
         )
         
+        # [0] लगाकर पहले हिस्से (Points) को सुरक्षित बाहर निकाला
+        records = search_results[0] if isinstance(search_results, tuple) else search_results
+        
         schemes_text = ""
-        for point in search_results[0]: # scroll returns a tuple (points, next_page_offset)
+        for point in records:
             payload = point.payload
             schemes_text += f"Scheme Name: {payload.get('Scheme Name', payload.get('title'))}\nDescription: {payload.get('Description', payload.get('details'))}\nEligibility Criteria: {payload.get('Eligibility Criteria')}\n\n"
 
-        # 🤖 3. Groq AI के लिए स्ट्रिक्ट गाइडलाइंस प्रॉम्प्ट
+        # 🤖 4. Groq AI के लिए कड़ा सिस्टम प्रॉम्प्ट
         system_prompt = (
             "You are an expert Government Scheme Eligibility Engine. Analyze the citizen profile against the provided schemes list.\n\n"
             "CRITICAL INSTRUCTION: You MUST return ONLY a valid, clean JSON object. Do not include any markdown code fences like ```json or ```. Do not include any conversational text.\n\n"
@@ -89,7 +93,7 @@ async def check_eligibility(profile: CitizenProfile):
             "Ensure 'required_documents' and 'step_by_step_guidance' are strictly arrays of strings with multiple separate steps, never a single block of text."
         )
         
-        response = groq_client.chat.completions.create(
+        response = current_groq.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -97,6 +101,9 @@ async def check_eligibility(profile: CitizenProfile):
             ],
             temperature=0.2
         )
+        
+        # बाकी का नीचे का पार्सर कोड (ai_output, JSON.loads आदि) बिल्कुल वैसा ही रहने दें...
+
         
         ai_output = response.choices.message.content.strip()
         print("Raw AI Output:", ai_output)
