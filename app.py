@@ -1,9 +1,12 @@
 import os
+import csv
+import uuid
 import json
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from qdrant_client import QdrantClient
+from qdrant_client.models import VectorParams, Distance, PointStruct
 from groq import Groq
 
 app = FastAPI()
@@ -56,6 +59,87 @@ def home():
     return {"message": "Backend is running permanently without n8n!"}
 
 
+# ⚠️ TEMPORARY MIGRATION ENDPOINT — kaam ho jaane ke baad ye pura block hata dena!
+# Ye CSV ko sahi structured format me Qdrant ki nayi collection me upload karta hai.
+MIGRATION_SECRET = os.getenv("MIGRATION_SECRET", "change-this-secret-123")
+
+
+@app.get("/admin/reupload-schemes")
+def reupload_schemes(secret: str = ""):
+    if secret != MIGRATION_SECRET:
+        raise HTTPException(status_code=403, detail="Invalid secret")
+
+    csv_path = os.path.join(os.path.dirname(__file__), "merged_schemes.csv")
+    if not os.path.exists(csv_path):
+        raise HTTPException(status_code=404, detail=f"CSV not found at {csv_path}")
+
+    collection_name = "government_schemes_v2"
+    vector_size = 768
+
+    # Naya collection banao (agar pehle se hai to delete karke fresh banayenge)
+    if qdrant_client.collection_exists(collection_name):
+        qdrant_client.delete_collection(collection_name)
+
+    qdrant_client.create_collection(
+        collection_name=collection_name,
+        vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
+    )
+
+    points = []
+    skipped = 0
+
+    with open(csv_path, encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            scheme_name = (row.get("scheme_name") or "").strip()
+            if not scheme_name:
+                skipped += 1
+                continue
+
+            payload = {
+                "scheme_name": scheme_name,
+                "slug": (row.get("slug") or "").strip(),
+                "details": (row.get("details") or "").strip(),
+                "benefits": (row.get("benefits") or "").strip(),
+                "eligibility": (row.get("eligibility") or "").strip(),
+                "application": (row.get("application") or "").strip(),
+                "documents": (row.get("documents") or "").strip(),
+                "level": (row.get("level") or "").strip(),
+                "beneficiaryState": (row.get("beneficiaryState") or "").strip(),
+                "schemeCategory": (row.get("schemeCategory") or "").strip(),
+                "nodalMinistryName": (row.get("nodalMinistryName") or "").strip(),
+                "tags": (row.get("tags") or "").strip(),
+            }
+
+            points.append(
+                PointStruct(
+                    id=str(uuid.uuid4()),
+                    vector=[0.0] * vector_size,
+                    payload=payload,
+                )
+            )
+
+    batch_size = 200
+    for i in range(0, len(points), batch_size):
+        batch = points[i:i + batch_size]
+        qdrant_client.upsert(collection_name=collection_name, points=batch)
+
+    info = qdrant_client.get_collection(collection_name)
+    sample = qdrant_client.scroll(collection_name=collection_name, limit=1, with_payload=True)[0]
+    sample_payload = sample[0].payload if sample else None
+
+    return {
+        "status": "success",
+        "collection": collection_name,
+        "total_rows_in_csv": len(points) + skipped,
+        "uploaded_points": len(points),
+        "skipped_empty_rows": skipped,
+        "points_in_collection_now": info.points_count,
+        "sample_payload": sample_payload,
+    }
+# ⚠️ TEMPORARY MIGRATION ENDPOINT ENDS HERE — kaam ho jaane ke baad ye pura block hata dena!
+
+
 @app.post("/api/check-eligibility")
 async def check_eligibility(profile: CitizenProfile):
     try:
@@ -66,28 +150,25 @@ async def check_eligibility(profile: CitizenProfile):
             f"Age: {profile.dob}, Gender: {profile.gender}"
         )
 
-        # 🔍 2. Qdrant से सारी योजनाएं लाएं (dataset chhota hai ~3400 records)
+        # 🔍 2. Qdrant से सारी योजनाएं लाएं
         search_results = qdrant_client.scroll(
-            collection_name="government_schemes",
-            limit=3500,
+            collection_name="government_schemes_v2",
+            limit=5000,
             with_payload=True
         )[0]
 
-        # 🎯 3. Sirf relevant schemes filter karo: Central (sabke liye) + State (state-name match)
+        # 🎯 3. Sirf relevant schemes filter karo: structured beneficiaryState field se
         relevant_schemes = []
         state_lower = (profile.state or "").lower().strip()
 
         for point in search_results:
             payload = point.payload
-            level = payload.get("level", "")
-            eligibility_text = (payload.get("eligibility", "") or "").lower()
-            details_text = (payload.get("details", "") or "").lower()
+            beneficiary_state = (payload.get("beneficiaryState", "") or "").lower().strip()
 
-            if level == "Central":
+            # "All" ka matlab har state ke liye applicable hai (Central schemes aksar aisi hoti hain)
+            if beneficiary_state == "all":
                 relevant_schemes.append(payload)
-            elif level == "State" and state_lower and (
-                state_lower in eligibility_text or state_lower in details_text
-            ):
+            elif state_lower and state_lower in beneficiary_state:
                 relevant_schemes.append(payload)
 
         # Groq token limit ke andar rehne ke liye top 20 tak limit karo
