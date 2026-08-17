@@ -56,20 +56,37 @@ async def check_eligibility(profile: CitizenProfile):
         # चूँकि हम एम्बेडिंग नोड हटा रहे हैं, हम Qdrant का 'Scroll' या टेक्स्ट सर्च यूज़ करेंगे जो बिना एम्बेडिंग मॉडल के 4,500+ योजनाओं को तुरंत छान देता है!
         search_results = qdrant_client.scroll(
             collection_name="government_schemes",
-            limit=15
+            limit=3500,          # sab records ek baar me le aao (sirf 3400 hain, chhota dataset)
+            with_payload=True
         )[0]
-        
-        schemes_text = ""
+
+        relevant_schemes = []
+        state_lower = profile.state.lower()
+
         for point in search_results:
             payload = point.payload
+            level = payload.get('level', '')
+            eligibility_text = (payload.get('eligibility', '') or '').lower()
+            details_text = (payload.get('details', '') or '').lower()
+
+    # Central schemes sab ke liye applicable, State schemes sirf state-match par
+            if level == 'Central':
+                relevant_schemes.append(payload)
+            elif level == 'State' and (state_lower in eligibility_text or state_lower in details_text):
+                relevant_schemes.append(payload)
+
+# Bahut zyada ho gaye to top N tak limit karo (Groq token limit ke liye)
+        relevant_schemes = relevant_schemes[:40]
+
+        schemes_text = ""
+        for payload in relevant_schemes:
             schemes_text += (
                 f"Scheme Name: {payload.get('scheme_name', 'N/A')}\n"
                 f"Description: {payload.get('details', 'N/A')}\n"
                 f"Eligibility Criteria: {payload.get('eligibility', 'N/A')}\n"
                 f"Benefits: {payload.get('benefits', 'N/A')}\n"
                 f"Application Process: {payload.get('application', 'N/A')}\n"
-                f"Required Documents: {payload.get('documents', 'N/A')}\n"
-                f"Level: {payload.get('level', 'N/A')}\n\n"
+                f"Required Documents: {payload.get('documents', 'N/A')}\n\n"
             )
         # 🤖 3. Groq AI को सीधे कॉल करें (सुपर-फ़ास्ट Llama-3.1-8b-instant मॉडल के साथ)
         system_prompt = (
