@@ -60,7 +60,6 @@ async def check_eligibility(profile: CitizenProfile):
         )[0]
         
         schemes_text = ""
-        schemes_text = ""
         for point in search_results:
             payload = point.payload
             schemes_text += (
@@ -81,11 +80,14 @@ async def check_eligibility(profile: CitizenProfile):
             "text provided for each scheme — break it into individual numbered steps. Do NOT write generic advice like "
             "'visit your nearest CSC' if the Application Process field contains specific steps or URLs. "
             "Do not include any markdown fences like ```json, just return raw JSON."
-        )
+)
         
         response = groq_client.chat.completions.create(
             model="llama-3.3-70b-versatile",
-            messages=[...],
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Citizen Profile:\n{user_query}\n\nAvailable Schemes:\n{schemes_text}"}
+            ],
             temperature=0.2,
             max_tokens=4000
         )
